@@ -641,7 +641,12 @@ static int seek_to_next_config(struct libusb_context *ctx,
 	uint8_t *buffer, size_t len)
 {
 	struct usbi_descriptor_header *header;
-	int offset = 0;
+	int offset;
+
+	/* Start seeking past the config descriptor */
+	offset = LIBUSB_DT_CONFIG_SIZE;
+	buffer += LIBUSB_DT_CONFIG_SIZE;
+	len -= LIBUSB_DT_CONFIG_SIZE;
 
 	while (len > 0) {
 		if (len < 2) {
@@ -718,7 +723,7 @@ static int parse_config_descriptors(struct libusb_device *dev)
 		}
 
 		if (priv->sysfs_dir) {
-			 /*
+			/*
 			 * In sysfs wTotalLength is ignored, instead the kernel returns a
 			 * config descriptor with verified bLength fields, with descriptors
 			 * with an invalid bLength removed.
@@ -727,8 +732,7 @@ static int parse_config_descriptors(struct libusb_device *dev)
 			int offset;
 
 			if (num_configs > 1 && idx < num_configs - 1) {
-				offset = seek_to_next_config(ctx, buffer + LIBUSB_DT_CONFIG_SIZE,
-							     remaining - LIBUSB_DT_CONFIG_SIZE);
+				offset = seek_to_next_config(ctx, buffer, remaining);
 				if (offset < 0)
 					return offset;
 				sysfs_config_len = (uint16_t)offset;
@@ -1361,7 +1365,7 @@ static int op_wrap_sys_device(struct libusb_context *ctx,
 		goto out;
 	/* Consider the device as connected, but do not add it to the managed
 	 * device list. */
-	dev->attached = 1;
+	usbi_atomic_store(&dev->attached, 1);
 	handle->dev = dev;
 
 	r = initialize_handle(handle, fd);
@@ -1383,7 +1387,7 @@ static int op_open(struct libusb_device_handle *handle)
 			/* device will still be marked as attached if hotplug monitor thread
 			 * hasn't processed remove event yet */
 			usbi_mutex_static_lock(&linux_hotplug_lock);
-			if (handle->dev->attached) {
+			if (usbi_atomic_load(&handle->dev->attached)) {
 				usbi_dbg("open failed with no device, but device still attached");
 				linux_device_disconnected(handle->dev->bus_number,
 							  handle->dev->device_address);
@@ -2707,7 +2711,7 @@ static int op_handle_events(struct libusb_context *ctx,
 			/* device will still be marked as attached if hotplug monitor thread
 			 * hasn't processed remove event yet */
 			usbi_mutex_static_lock(&linux_hotplug_lock);
-			if (handle->dev->attached)
+			if (usbi_atomic_load(&handle->dev->attached))
 				linux_device_disconnected(handle->dev->bus_number,
 							  handle->dev->device_address);
 			usbi_mutex_static_unlock(&linux_hotplug_lock);
