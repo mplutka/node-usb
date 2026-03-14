@@ -46,14 +46,46 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     Napi::HandleScope scope(env);
     initConstants(exports);
 
+    #if defined(WIN32) && defined(HAVE_USBDK)
+    // Must be called before libusb_init — sets backend for the default context
+    int usbdk_r = libusb_set_option(nullptr, LIBUSB_OPTION_USE_USBDK);
+    if (usbdk_r != LIBUSB_SUCCESS && usbdk_r != LIBUSB_ERROR_NOT_FOUND) {
+        // NOT_FOUND means UsbDk isn't installed — treat as non-fatal,
+        // libusb will fall back to WinUSB automatically
+        Napi::Error::New(env, "Failed to set UsbDk backend")
+            .ThrowAsJavaScriptException();
+        return exports;
+    }
+    #endif
+
     // Initialize libusb. On error, halt initialization.
     libusb_context* usb_context = nullptr;
+
+    #if defined(WIN32) && defined(HAVE_USBDK)
+        libusb_set_option(nullptr, LIBUSB_OPTION_USE_USBDK);  // still nullptr here
+    #endif
+
     int res = libusb_init(&usb_context);
+    if (res < 0) {
+        Napi::Error::New(env, "Failed to initialize libusb")
+            .ThrowAsJavaScriptException();
+        return exports;
+    }
 
     exports.Set("INIT_ERROR", Napi::Number::New(env, res));
     if (res != 0) {
         return exports;
     }
+
+    exports.Set(
+        Napi::String::New(env, "LIBUSB_BACKEND_USBDK"),
+    #if defined(WIN32) && defined(HAVE_USBDK)
+        Napi::Boolean::New(env, usbdk_r == LIBUSB_SUCCESS)
+    #else
+        Napi::Boolean::New(env, false)
+    #endif
+    );
+
 
     env.SetInstanceData(new ModuleData(usb_context));
 
