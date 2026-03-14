@@ -65,7 +65,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         libusb_set_option(nullptr, LIBUSB_OPTION_USE_USBDK);  // still nullptr here
     #endif
 
-    int res = libusb_init(&usb_context);
+    int res = libusb_init_context(&usb_context);
     if (res < 0) {
         Napi::Error::New(env, "Failed to initialize libusb")
             .ThrowAsJavaScriptException();
